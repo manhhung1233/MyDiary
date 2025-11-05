@@ -1,4 +1,5 @@
 import React, { createContext, useState, useContext, useEffect } from 'react';
+import { loadServerDbToLocal, mergeAndSaveToServer } from '../utils/serverSync';
 
 const AuthContext = createContext();
 
@@ -15,12 +16,15 @@ export const AuthProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Load user from localStorage on mount
-    const savedUser = localStorage.getItem('user');
-    if (savedUser) {
-      setUser(JSON.parse(savedUser));
-    }
-    setLoading(false);
+    // Load from server first, then restore session
+    (async () => {
+      await loadServerDbToLocal();
+      const savedUser = localStorage.getItem('user');
+      if (savedUser) {
+        setUser(JSON.parse(savedUser));
+      }
+      setLoading(false);
+    })();
   }, []);
 
   const login = (email, password) => {
@@ -52,11 +56,15 @@ export const AuthProvider = ({ children }) => {
       password, // In real app, hash this
       avatar: '',
       bio: '',
-      createdAt: new Date().toISOString()
+      createdAt: new Date().toISOString(),
+      bookmarks: [],
+      achievements: []
     };
 
     users.push(newUser);
     localStorage.setItem('users', JSON.stringify(users));
+    // Sync to server (non-blocking)
+    mergeAndSaveToServer({ users }).catch(() => {});
 
     const userData = { ...newUser };
     delete userData.password;
@@ -83,6 +91,8 @@ export const AuthProvider = ({ children }) => {
       delete updatedUser.password;
       setUser(updatedUser);
       localStorage.setItem('user', JSON.stringify(updatedUser));
+      // Sync to server (non-blocking)
+      mergeAndSaveToServer({ users }).catch(() => {});
     }
   };
 

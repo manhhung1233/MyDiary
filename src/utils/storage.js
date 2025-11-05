@@ -1,4 +1,5 @@
 // Utility functions for managing diary data in JSON
+import { mergeAndSaveToServer } from './serverSync';
 
 export const getDiaries = () => {
   try {
@@ -13,6 +14,8 @@ export const getDiaries = () => {
 export const saveDiaries = (diaries) => {
   try {
     localStorage.setItem('diaries', JSON.stringify(diaries));
+    // Fire-and-forget sync to server
+    mergeAndSaveToServer({ diaries }).catch(() => {});
     return true;
   } catch (error) {
     console.error('Error saving diaries:', error);
@@ -161,15 +164,21 @@ export const getLikeCount = (diaryId) => {
 // Bookmark functions
 export const toggleBookmark = (diaryId, userId) => {
   try {
-    const bookmarks = JSON.parse(localStorage.getItem(`bookmarks_${userId}`) || '[]');
-    const index = bookmarks.indexOf(diaryId);
-    if (index !== -1) {
-      bookmarks.splice(index, 1);
+    const users = JSON.parse(localStorage.getItem('users') || '[]');
+    const userIndex = users.findIndex(u => u.id === userId);
+    if (userIndex === -1) return [];
+    const user = users[userIndex];
+    user.bookmarks = Array.isArray(user.bookmarks) ? user.bookmarks : [];
+    const idx = user.bookmarks.indexOf(diaryId);
+    if (idx !== -1) {
+      user.bookmarks.splice(idx, 1);
     } else {
-      bookmarks.push(diaryId);
+      user.bookmarks.push(diaryId);
     }
-    localStorage.setItem(`bookmarks_${userId}`, JSON.stringify(bookmarks));
-    return bookmarks;
+    users[userIndex] = user;
+    localStorage.setItem('users', JSON.stringify(users));
+    mergeAndSaveToServer({ users }).catch(() => {});
+    return user.bookmarks;
   } catch (error) {
     console.error('Error toggling bookmark:', error);
     return [];
@@ -179,7 +188,9 @@ export const toggleBookmark = (diaryId, userId) => {
 export const isBookmarked = (diaryId, userId) => {
   if (!userId) return false;
   try {
-    const bookmarks = JSON.parse(localStorage.getItem(`bookmarks_${userId}`) || '[]');
+    const users = JSON.parse(localStorage.getItem('users') || '[]');
+    const user = users.find(u => u.id === userId);
+    const bookmarks = Array.isArray(user?.bookmarks) ? user.bookmarks : [];
     return bookmarks.includes(diaryId);
   } catch (error) {
     return false;
@@ -189,7 +200,9 @@ export const isBookmarked = (diaryId, userId) => {
 export const getBookmarkedDiaries = (userId) => {
   if (!userId) return [];
   try {
-    const bookmarks = JSON.parse(localStorage.getItem(`bookmarks_${userId}`) || '[]');
+    const users = JSON.parse(localStorage.getItem('users') || '[]');
+    const user = users.find(u => u.id === userId);
+    const bookmarks = Array.isArray(user?.bookmarks) ? user.bookmarks : [];
     const diaries = getDiaries();
     return diaries.filter(diary => bookmarks.includes(diary.id) && diary.isPublic);
   } catch (error) {
@@ -379,9 +392,18 @@ export const calculateAchievements = (userId) => {
   const moodCount = Object.keys(stats.moodStats).length;
   if (moodCount >= 5) achievements.push({ id: '5_moods', name: 'Đa Cảm Xúc', description: 'Ghi lại 5 cảm xúc khác nhau', icon: '😊' });
   
-  // Save achievements to localStorage
+  // Save achievements to server (via users array)
   try {
-    localStorage.setItem(`achievements_${userId}`, JSON.stringify(achievements.map(a => a.id)));
+    const users = JSON.parse(localStorage.getItem('users') || '[]');
+    const userIndex = users.findIndex(u => u.id === userId);
+    if (userIndex !== -1) {
+      users[userIndex] = {
+        ...users[userIndex],
+        achievements: achievements.map(a => a.id)
+      };
+      localStorage.setItem('users', JSON.stringify(users));
+      mergeAndSaveToServer({ users }).catch(() => {});
+    }
   } catch (error) {
     console.error('Error saving achievements:', error);
   }
@@ -391,7 +413,9 @@ export const calculateAchievements = (userId) => {
 
 export const getUnlockedAchievements = (userId) => {
   try {
-    return JSON.parse(localStorage.getItem(`achievements_${userId}`) || '[]');
+    const users = JSON.parse(localStorage.getItem('users') || '[]');
+    const user = users.find(u => u.id === userId);
+    return Array.isArray(user?.achievements) ? user.achievements : [];
   } catch {
     return [];
   }
